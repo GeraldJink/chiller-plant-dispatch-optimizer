@@ -1,0 +1,23 @@
+# Local environment and generated/private inputs
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.nbc
+*.nbi
+.idea/
+.vscode/
+.env
+.env.*
+config/local*.json
+inputs/
+models/
+local_models/
+outputs/
+pump_data/
+*.db
+*.sqlite*
+*.log
+dist/
+build/
+*.egg-info/

@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "description": "仅做演示，不代表任何机理模型，不建议直接套用",
+  "water_heat_capacity_kwh_m3_k": 1.163,
+  "chiller_model": {
+    "peak_cop": 6.5,
+    "peak_plr": 0.65,
+    "part_load_curvature": 2.5,
+    "reference_chw_supply_c": 8,
+    "reference_cw_return_c": 34,
+    "lift_sensitivity_per_c": 0.025,
+    "minimum_cop": 1
+  },
+  "chillers": [
+    {
+      "id": "CH-1",
+      "capacity_kw": 1000,
+      "min_plr": 0.15,
+      "max_plr": 1,
+      "cop_multiplier": 1
+    },
+    {
+      "id": "CH-2",
+      "capacity_kw": 1000,
+      "min_plr": 0.15,
+      "max_plr": 1,
+      "cop_multiplier": 1
+    },
+    {
+      "id": "CH-3",
+      "capacity_kw": 1000,
+      "min_plr": 0.15,
+      "max_plr": 1,
+      "cop_multiplier": 1
+    },
+    {
+      "id": "CH-4",
+      "capacity_kw": 1000,
+      "min_plr": 0.15,
+      "max_plr": 1,
+      "cop_multiplier": 1
+    }
+  ],
+  "chw_pumps": [
+    {
+      "id": "CHWP-1",
+      "flow_m3_h": 240,
+      "power_kw": 18,
+      "head_m": 20,
+      "rated_hz": 50,
+      "min_speed_ratio": 0.2,
+      "max_speed_ratio": 1
+    },
+    {
+      "id": "CHWP-2",
+      "flow_m3_h": 240,
+      "power_kw": 18,
+      "head_m": 20,
+      "rated_hz": 50,
+      "min_speed_ratio": 0.2,
+      "max_speed_ratio": 1
+    },
+    {
+      "id": "CHWP-3",
+      "flow_m3_h": 240,
+      "power_kw": 18,
+      "head_m": 20,
+      "rated_hz": 50,
+      "min_speed_ratio": 0.2,
+      "max_speed_ratio": 1
+    },
+    {
+      "id": "CHWP-4",
+      "flow_m3_h": 240,
+      "power_kw": 18,
+      "head_m": 20,
+      "rated_hz": 50,
+      "min_speed_ratio": 0.2,
+      "max_speed_ratio": 1
+    }
+  ],
+  "cw_pumps": [
+    {
+      "id": "CWP-1",
+      "flow_m3_h": 280,
+      "power_kw": 22,
+      "head_m": 22,
+      "rated_hz": 50,
+      "min_speed_ratio": 0.2,
+      "max_speed_ratio": 1
+    },
+    {
+      "id": "CWP-2",
+      "flow_m3_h": 280,
+      "power_kw": 22,
+      "head_m": 22,
+      "rated_hz": 50,
+      "min_speed_ratio": 0.2,
+      "max_speed_ratio": 1
+    },
+    {
+      "id": "CWP-3",
+      "flow_m3_h": 280,
+      "power_kw": 22,
+      "head_m": 22,
+      "rated_hz": 50,
+      "min_speed_ratio": 0.2,
+      "max_speed_ratio": 1
+    },
+    {
+      "id": "CWP-4",
+      "flow_m3_h": 280,
+      "power_kw": 22,
+      "head_m": 22,
+      "rated_hz": 50,
+      "min_speed_ratio": 0.2,
+      "max_speed_ratio": 1
+    }
+  ],
+  "towers": [
+    {
+      "id": "CT-1",
+      "heat_rejection_kw": 1300,
+      "fan_power_kw": 12,
+      "rated_hz": 50,
+      "min_speed_ratio": 0.15,
+      "max_speed_ratio": 1
+    },
+    {
+      "id": "CT-2",
+      "heat_rejection_kw": 1300,
+      "fan_power_kw": 12,
+      "rated_hz": 50,
+      "min_speed_ratio": 0.15,
+      "max_speed_ratio": 1
+    },
+    {
+      "id": "CT-3",
+      "heat_rejection_kw": 1300,
+      "fan_power_kw": 12,
+      "rated_hz": 50,
+      "min_speed_ratio": 0.15,
+      "max_speed_ratio": 1
+    },
+    {
+      "id": "CT-4",
+      "heat_rejection_kw": 1300,
+      "fan_power_kw": 12,
+      "rated_hz": 50,
+      "min_speed_ratio": 0.15,
+      "max_speed_ratio": 1
+    }
+  ],
+  "tower_model": {
+    "full_speed_approach_c": 3,
+    "maximum_approach_c": 8,
+    "air_exponent": 0.8
+  },
+  "optimization": {
+    "bounds": {
+      "chw_supply_c": [
+        6,
+        12
+      ],
+      "chw_delta_c": [
+        3,
+        6
+      ],
+      "cw_delta_c": [
+        3,
+        6
+      ],
+      "cw_supply_c": [
+        20,
+        36
+      ],
+      "chw_return_c": [
+        9,
+        18
+      ],
+      "cw_return_c": [
+        23,
+        42
+      ],
+      "approach_c": [
+        3,
+        8
+      ]
+    },
+    "max_temperature_step_c": 1.5,
+    "max_control_step_c": 1.5,
+    "initial_temperatures": {
+      "chw_supply_c": 8,
+      "chw_return_c": 13,
+      "cw_supply_c": 29,
+      "cw_return_c": 34
+    },
+    "population_size": 32,
+    "generations": 35,
+    "elite_count": 2,
+    "tournament_size": 3,
+    "crossover_rate": 0.85,
+    "mutation_rate": 0.12,
+    "mutation_scale": 0.15,
+    "seed": 42
+  },
+  "load_generation": {
+    "start": "2026-07-01T00:00:00",
+    "periods": 24,
+    "interval_minutes": 60,
+    "min_load_fraction": 0.35,
+    "max_load_fraction": 0.7,
+    "max_load_step_fraction": 0.08,
+    "wet_bulb_min_c": 22,
+    "wet_bulb_max_c": 25,
+    "seed": 7
+  }
+}
