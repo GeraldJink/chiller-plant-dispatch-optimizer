@@ -13,6 +13,8 @@ PUBLIC_FILES = (
     "tests/test_planner.py",
     "model_interface.py", "docs/MODEL_GUIDE.md", "examples/__init__.py",
     "examples/model_adapters.py", "examples/use_custom_model.py", "tests/test_model_interface.py",
+    "load_allocation.py", "chiller_scheduling.py", "examples/load_allocators.py",
+    "docs/CHILLER_SCHEDULING.md", "tests/test_chiller_scheduling.py",
 )
 
 

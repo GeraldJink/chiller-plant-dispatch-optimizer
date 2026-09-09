@@ -4,6 +4,7 @@ import random
 from optimize_utils import Plant, validate_schedule
 from config import validate_config
 from load_generate import validate_load
+from chiller_scheduling import replay_commitment
 
 
 class SeriesGA:
@@ -53,7 +54,8 @@ class SeriesGA:
                 next_ranked.append((plant.evaluate(child)[0], child))
             ranked = sorted(next_ranked, key=lambda pair: pair[0])
         if not math.isfinite(ranked[0][0]):
-            raise ValueError("No feasible schedule found. Check load, pump minimum flow/capacity, chiller minimum PLR and predictor domain, initial temperatures, wet-bulb and search bounds; or increase GA population/generations. This is not a proof of infeasibility.")
+            raise ValueError("No feasible schedule found. Check minimum on/off hours, initial chiller state and terminal policy, load allocation, load, pump minimum flow/capacity, chiller PLR and predictor domain, initial temperatures, wet-bulb and search bounds; or increase GA population/generations. This is not a proof of infeasibility.")
         energy, schedule = plant.evaluate(ranked[0][1], detailed=True)
-        validate_schedule(self.cfg, loads, schedule, chiller_models=plant.chiller_models)
-        return {"algorithm": "genetic_algorithm", "status": "feasible_best_found", "seed": opt["seed"], "total_energy_kwh": energy, "initial_population_best_energy_kwh": initial_best if math.isfinite(initial_best) else None, "history": history, "schedule": schedule}
+        validate_schedule(self.cfg, loads, schedule, chiller_models=plant.chiller_models, allocator=plant.allocator)
+        terminal_state = replay_commitment(self.cfg, schedule)
+        return {"algorithm": "genetic_algorithm", "commitment_algorithm": "dynamic_programming", "status": "feasible_best_found", "seed": opt["seed"], "total_energy_kwh": energy, "initial_population_best_energy_kwh": initial_best if math.isfinite(initial_best) else None, "history": history, "schedule": schedule, "terminal_chiller_state": terminal_state}

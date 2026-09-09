@@ -5,7 +5,7 @@ import json
 import math
 import sys
 from pathlib import Path
-from config import load_config
+from config import load_config, validate_config
 from ga_series import SeriesGA
 from load_generate import generate_load, read_load_csv, write_load_csv
 
@@ -34,12 +34,16 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Offline genetic-algorithm chiller plant planner (fictional models)")
     parser.add_argument("--config", help="Plant JSON; defaults to config/default.json")
     parser.add_argument("--load", help="Load CSV; omit to generate a reproducible synthetic curve")
+    parser.add_argument("--runtime-hours", type=float, nargs="+", help="Cumulative chiller run hours in config device order; overrides chiller_scheduling.runtime_hours")
     parser.add_argument("--output", default="outputs/demo", help="Result directory (default: outputs/demo)")
     parser.add_argument("--generate-only", metavar="CSV", help="Write generated load CSV and exit")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
     try:
         cfg = load_config(args.config)
+        if args.runtime_hours is not None:
+            cfg.setdefault("chiller_scheduling", {})["runtime_hours"] = args.runtime_hours
+            validate_config(cfg)
         if args.generate_only:
             if args.load:
                 parser.error("--generate-only cannot be combined with --load")

@@ -156,6 +156,16 @@
     "maximum_approach_c": 8,
     "air_exponent": 0.8
   },
+  "load_allocation": null,
+  "chiller_scheduling": {
+    "min_on_hours": 2.0,
+    "min_off_hours": 2.0,
+    "initial_on": null,
+    "initial_state_hours": null,
+    "runtime_hours": null,
+    "prefer_shorter_runtime": true,
+    "terminal_policy": "require_complete"
+  },
   "optimization": {
     "bounds": {
       "chw_supply_c": [

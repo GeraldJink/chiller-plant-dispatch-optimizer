@@ -4,6 +4,8 @@ from config import CONTROLS, TEMPERATURES
 from power_models import required_air_fraction, merkel_approach, affinity_power
 from model_interface import ChillerInputs, ModelDomainError, load_chiller_models
 from pump_lookup import PumpLookupTable, subsets
+from load_allocation import AllocationChiller, AllocationInputs, AllocationInfeasible, LoadAllocator
+from chiller_scheduling import CommitmentPlanner, replay_commitment
 
 
 def temperatures(controls):
@@ -20,6 +22,10 @@ class Plant:
         self.cfg, self.loads = cfg, loads
         self.bounds = cfg["optimization"]["bounds"]
         self.chiller_models = load_chiller_models(cfg)
+        self.allocator = LoadAllocator(cfg)
+        self.commitment = CommitmentPlanner(cfg, loads)
+        self.chiller_indices = {d["id"]: i for i, d in enumerate(cfg["chillers"])}
+        self.allocation_chillers = {d["id"]: AllocationChiller(d["id"], d["capacity_kw"], d["min_plr"], d["max_plr"]) for d in cfg["chillers"]}
         self.chw_pumps = PumpLookupTable(cfg["chw_pumps"])
         self.cw_pumps = PumpLookupTable(cfg["cw_pumps"])
         self.chiller_groups = [(g, sum(d["capacity_kw"] for d in g)) for g in subsets(cfg["chillers"])]
@@ -93,24 +99,29 @@ class Plant:
         power, devices, speed = best
         return {"power_kw": power, "devices": [{"id": d["id"], "speed_ratio": speed, "frequency_hz": speed * d["rated_hz"]} for d in devices]}
 
-    def dispatch(self, load, wet_bulb, controls):
+    def dispatch_candidates(self, load, wet_bulb, controls):
         t = temperatures(controls)
         approach = t["cw_supply_c"] - wet_bulb
         common = {**dict(zip(CONTROLS, controls)), **t, "approach_c": approach}
         if load == 0:
-            return {**common, "chillers": [], "chw_pumps": [], "cw_pumps": [], "towers": [], "chw_flow_m3_h": 0.0, "cw_flow_m3_h": 0.0, "heat_rejection_kw": 0.0, "chiller_power_kw": 0.0, "chw_pump_power_kw": 0.0, "cw_pump_power_kw": 0.0, "tower_power_kw": 0.0, "total_power_kw": 0.0}
+            return {0: {**common, "chillers": [], "chw_pumps": [], "cw_pumps": [], "towers": [], "chw_flow_m3_h": 0.0, "cw_flow_m3_h": 0.0, "heat_rejection_kw": 0.0, "chiller_power_kw": 0.0, "chw_pump_power_kw": 0.0, "cw_pump_power_kw": 0.0, "tower_power_kw": 0.0, "total_power_kw": 0.0}}
         cp = self.cfg["water_heat_capacity_kwh_m3_k"]
         chw = self.chw_pumps.lookup(load / (cp * controls[1]))
         if chw is None:
-            return None
-        best = None
+            return {}
+        candidates = {}
         for devices, capacity in self.chiller_groups:
-            plr = load / capacity
-            if not all(d["min_plr"] - 1e-9 <= plr <= d["max_plr"] + 1e-9 for d in devices):
+            if load < sum(d["capacity_kw"] * d["min_plr"] for d in devices) - 1e-9 or load > sum(d["capacity_kw"] * d["max_plr"] for d in devices) + 1e-9:
+                continue
+            allocation_inputs = AllocationInputs(load, tuple(self.allocation_chillers[d["id"]] for d in devices), **t, wet_bulb_c=wet_bulb)
+            try:
+                allocated = self.allocator.loads_kw(allocation_inputs)
+            except AllocationInfeasible:
                 continue
             chillers = []
             for d in devices:
-                q = d["capacity_kw"] * plr
+                q = allocated[d["id"]]
+                plr = q / d["capacity_kw"]
                 inputs = ChillerInputs(q, d["capacity_kw"], **t, wet_bulb_c=wet_bulb)
                 try:
                     power = self.chiller_models[d["id"]].power_kw(inputs)
@@ -126,27 +137,33 @@ class Plant:
             if cw is None or tower is None:
                 continue
             total = power + chw["power_kw"] + cw["power_kw"] + tower["power_kw"]
-            if best is None or total < best["total_power_kw"]:
-                best = {**common, "chillers": chillers, "chw_pumps": chw["devices"], "cw_pumps": cw["devices"], "towers": tower["devices"], "chw_flow_m3_h": chw["flow_m3_h"], "cw_flow_m3_h": cw["flow_m3_h"], "heat_rejection_kw": reject, "chiller_power_kw": power, "chw_pump_power_kw": chw["power_kw"], "cw_pump_power_kw": cw["power_kw"], "tower_power_kw": tower["power_kw"], "total_power_kw": total}
-        return best
+            mask = sum(1 << self.chiller_indices[d["id"]] for d in devices)
+            candidates[mask] = {**common, "chillers": chillers, "chw_pumps": chw["devices"], "cw_pumps": cw["devices"], "towers": tower["devices"], "chw_flow_m3_h": chw["flow_m3_h"], "cw_flow_m3_h": cw["flow_m3_h"], "heat_rejection_kw": reject, "chiller_power_kw": power, "chw_pump_power_kw": chw["power_kw"], "cw_pump_power_kw": cw["power_kw"], "tower_power_kw": tower["power_kw"], "total_power_kw": total}
+        return candidates
+
+    def dispatch(self, load, wet_bulb, controls):
+        """Single-point diagnostic only; full planning must use evaluate()."""
+        return min(self.dispatch_candidates(load, wet_bulb, controls).values(), key=lambda row: row["total_power_kw"], default=None)
 
     def evaluate(self, genes, detailed=False):
         controls = self.decode(genes)
         if controls is None:
             return (math.inf, None)
-        energy, schedule = 0.0, []
+        candidates = []
         for source, values in zip(self.loads, controls):
-            result = self.dispatch(source["load_kw"], source["wet_bulb_c"], values)
-            if result is None:
+            options = self.dispatch_candidates(source["load_kw"], source["wet_bulb_c"], values)
+            if not options:
                 return (math.inf, None)
-            kwh = result["total_power_kw"] * source["duration_hours"]
-            energy += kwh
-            if detailed:
-                schedule.append({**source, **result, "energy_kwh": kwh})
-        return energy, schedule if detailed else None
+            candidates.append(options)
+        energy, masks = self.commitment.solve(candidates)
+        if masks is None or not detailed:
+            return energy, None
+        schedule = [{**source, **options[mask], "energy_kwh": options[mask]["total_power_kw"] * source["duration_hours"]} for source, options, mask in zip(self.loads, candidates, masks)]
+        replay_commitment(self.cfg, schedule, annotate=True)
+        return energy, schedule
 
 
-def validate_schedule(cfg, loads, schedule, chiller_models=None):
+def validate_schedule(cfg, loads, schedule, chiller_models=None, allocator=None):
     """Check exported decisions independently of chromosome repair and GA fitness."""
     def check(ok, message):
         if not ok:
@@ -156,7 +173,9 @@ def validate_schedule(cfg, loads, schedule, chiller_models=None):
         return math.isclose(a, b, rel_tol=1e-8, abs_tol=1e-6)
 
     check(len(loads) == len(schedule), "row count")
+    replay_commitment(cfg, schedule)
     chiller_models = load_chiller_models(cfg) if chiller_models is None else chiller_models
+    allocator = LoadAllocator(cfg) if allocator is None else allocator
     opt, cp = cfg["optimization"], cfg["water_heat_capacity_kwh_m3_k"]
     previous = opt["initial_temperatures"]
     for source, row in zip(loads, schedule):
@@ -177,6 +196,11 @@ def validate_schedule(cfg, loads, schedule, chiller_models=None):
             ids = [d["id"] for d in row[group]]
             check(len(ids) == len(set(ids)), f"duplicate {group}")
         devices = {d["id"]: d for d in cfg["chillers"]}
+        if load:
+            selected = {d["id"] for d in row["chillers"]}
+            group = tuple(AllocationChiller(d["id"], d["capacity_kw"], d["min_plr"], d["max_plr"]) for d in cfg["chillers"] if d["id"] in selected)
+            allocation = allocator.loads_kw(AllocationInputs(load, group, **expected, wet_bulb_c=source["wet_bulb_c"]))
+            check(all(close(d["load_kw"], allocation[d["id"]]) for d in row["chillers"]), "load allocation model")
         for d in row["chillers"]:
             check(d["id"] in devices, "unknown chiller")
             rated = devices[d["id"]]

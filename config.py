@@ -4,6 +4,8 @@ import math
 from pathlib import Path
 from datetime import datetime
 from model_interface import validate_predictor
+from load_allocation import validate_allocation_config
+from chiller_scheduling import validate_scheduling_config
 
 DEFAULT_CONFIG = Path(__file__).parent / "config" / "default.json"
 CONTROLS = ("chw_supply_c", "chw_delta_c", "cw_delta_c", "cw_supply_c")
@@ -64,6 +66,8 @@ def validate_config(cfg):
                 lo, hi = ("min_plr", "max_plr") if group == "chillers" else ("min_speed_ratio", "max_speed_ratio")
                 number(device[lo], f"{name}.{lo}", 0.001, 1)
                 number(device[hi], f"{name}.{hi}", device[lo], 1)
+        validate_scheduling_config(cfg)
+        validate_allocation_config(cfg.get("load_allocation"))
         model = cfg["chiller_model"]
         for field in ("peak_cop", "part_load_curvature", "lift_sensitivity_per_c", "minimum_cop"):
             number(model[field], field, 0.00001)

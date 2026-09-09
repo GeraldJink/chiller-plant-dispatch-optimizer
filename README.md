@@ -21,6 +21,14 @@ python main.py --load examples/load.csv --output outputs/my_plan
 python main.py --config config/default.json --load examples/load.csv --output outputs/custom
 ```
 
+指定各台主机的历史累计运行小时数（按配置中 `chillers` 的顺序）：
+
+```bash
+python main.py --runtime-hours 1200 800 450 1000 --output outputs/runtime_plan
+```
+
+默认最小连续开机、停机时间均为 **2 小时**；能耗相同时优先使用累计运行时间较短的主机。详见 [主机启停与负荷分配](docs/CHILLER_SCHEDULING.md)。
+
 生成独立负荷文件，编辑后重新导入：
 
 ```bash
@@ -62,6 +70,8 @@ timestamp,load_kw,wet_bulb_c,duration_hours
 | `chiller_model` | 全局主机 COP 峰值、峰值负载率、曲率、参考水温、温升敏感度、COP 下限 |
 | `chillers[i].model` | 可选，只覆盖这一台主机的任意上述模型字段 |
 | `chillers[i].predictor` | 可选，自定义功率模型工厂、加载选项和有效工况域；优先于内置 COP 模型 |
+| `load_allocation` | 自定义组合内负荷分配工厂；默认 `null` 表示按额定冷量比例分配 |
+| `chiller_scheduling` | 最小开停机时间、初始启停状态、状态持续小时、累计运行小时及优先规则 |
 | `chw_pumps` / `cw_pumps` | 每台泵的 ID、额定流量 m³/h、功率 kW、扬程 m、频率 Hz、转速比上下限 |
 | `towers` | 每座塔的 ID、虚构散热容量 kW、额定风机功率和频率、转速比上下限 |
 | `tower_model` | 全开逼近度、最大逼近度、空气量指数 |
@@ -109,7 +119,9 @@ P_chiller = load / max(minimum_cop, COP)
 
 默认参考工况：冷冻供水 8°C、冷却回水 34°C，`peak_cop=6.5`、`peak_plr=0.65`。保持水温不变时 COP 在 65% 负载率达到峰值。公开文件不包含旧主机拟合参数、设备型号、拟合指标或实测曲线。
 
-每个候选控制点枚举主机启停组合，对运行主机采用**相同负载率**分配（按额定冷量比例分配），检查每台 PLR 范围，联合比较主机、泵、塔总功率。设备异构时仍按此分配规则，未搜索每台主机独立的连续负荷分配。
+每个候选控制点枚举主机组合，默认按额定冷量比例分配冷量，因此运行主机具有**相同 PLR**。可通过 `load_allocation` 替换此规则，使各机 PLR 不同；无论采用哪种分配，都检查冷量守恒和每台 PLR 范围，再计算主机、泵、塔总功率。GA 本身不额外搜索独立的单机冷量，分配方案由所配置的分配函数决定。
+
+各时段的组合交给动态规划，在整段负荷曲线上选择满足最小开停机时间的最低电耗路径。它会保留当前稍贵但能满足后续负荷的方案，避免逐时独立选机造成后续无可用设备。
 
 ### 泵和风机相似定律
 
@@ -162,19 +174,23 @@ approach = R / [exp(NTU) - 1]
 
 输出是 **GA 找到并验证的最佳可行策略**，不承诺数学上的全局最优。没有找到可行解时返回退出码 2 和错误原因，不输出新的结果；此时也不等于证明问题无解。可以检查设备容量、最小流量、初始水温及边界，或增加种群与迭代数。精英保留保证已找到的最佳可行目标值不变差。
 
-当前优化对象为温度序列和各时段设备组合，不包含最小开停机时间、启停成本、设备轮换、泵塔频率变化上限或现场联锁。结果仅供离线算法演示，不直接下发控制指令。
+默认最小开机和停机时间均为 2 小时，按 `duration_hours` 累加；主机切换只发生在输入时段边界。累计运行小时可用于电耗相同时的优先选择，并随规划时段更新。默认要求到计划末尾已满足本次最小开/停时长；短计划或滚动规划可显式选择 `carry_over` 并将输出末态传入下一次规划，不能直接丢弃未完成的锁定时间。详见 [配置与边界行为](docs/CHILLER_SCHEDULING.md)。
+
+当前仍不包含启停成本、泵塔最小开停机时间、频率变化上限或现场联锁。结果仅供离线算法演示，不直接下发控制指令。
 
 ## 结果文件
 
 | 文件 | 内容 |
 | --- | --- |
 | `schedule.csv` | 每个时段的负荷、水温、两侧流量、设备动作、各项功率和电耗；设备列表为 JSON 单元格 |
-| `result.json` | 完整结构化结果、GA 最佳值历史、初始种群最佳值、随机种子和状态 |
+| `result.json` | 完整结构化结果、GA 最佳值历史、初始种群最佳值、随机种子及 `terminal_chiller_state` 末态 |
 | `convergence.csv` | 每一代最佳可行电耗；尚无可行解时为空值 |
 | `load.csv` | 本次实际使用的输入负荷 |
 | `config.json` | 本次实际使用的完整配置快照 |
 
 设备动作列表明确给出运行设备 ID；未出现在对应列表中的设备为关闭状态。主机列表包含负荷、PLR、COP 和功率；泵/塔包含转速比及 Hz，泵另含扬程。四项设备功率之和是 `total_power_kw`，`energy_kwh` 是该时段电耗。
+
+每行还包含 `chiller_on`、`chiller_runtime_hours`、`chiller_state_hours`、`chiller_remaining_lock_hours` 数组，均按配置设备顺序排列，数值为该时段结束时的状态。导出前会独立回放并验证最小开停机时长、累计运行小时及自定义分配结果。
 
 导出前独立复核：输入时段、各项边界、首时段初值、相邻四个水温和四个控制变量、设备转速/PLR、供冷和两侧热平衡、Merkel 逼近度、总功率与电耗。`initial_population_best_energy_kwh` 是算法初始种群最佳值，不代表真实现场基线或节能率。
 
@@ -188,6 +204,10 @@ ga_series.py              全时域遗传算法
 optimize_utils.py         控制序列解码、设备调度、结果复核
 power_models.py           虚构模型和相似定律
 model_interface.py        自定义主机功率接口及有效域校验
+load_allocation.py        可替换的组合内负荷分配接口
+chiller_scheduling.py     最小开停机约束与运行小时优先选择
+examples/load_allocators.py  自定义不同 PLR 分配示例
+docs/CHILLER_SCHEDULING.md  主机调度、输入数组与滚动规划说明
 examples/model_adapters.py  机理、sklearn、PyTorch 适配示例
 examples/use_custom_model.py  自定义机理模型完整演示
 docs/MODEL_GUIDE.md       模型替换与扩展指南

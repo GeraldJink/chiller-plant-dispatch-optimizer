@@ -142,7 +142,7 @@ class OptimizerTest(unittest.TestCase):
         self.assertTrue(validate_schedule(self.cfg, loads, result["schedule"]))
 
     def test_non_hourly_energy(self):
-        self.cfg["load_generation"].update(periods=4, interval_minutes=15)
+        self.cfg["load_generation"].update(periods=8, interval_minutes=15)
         loads = generate_load(self.cfg)
         result = SeriesGA(self.cfg).optimize(loads)
         self.assertAlmostEqual(result["total_energy_kwh"], .25 * sum(r["total_power_kw"] for r in result["schedule"]))
