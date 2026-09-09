@@ -1,8 +1,70 @@
+![冷站全局优化算法：冷水机组、泵塔与优化搜索示意](docs/assets/banner.png)
+
 # 冷站负荷与控制策略优化
+
+**简体中文** · [English](README_EN.md)
+
+**Python 3.10+ · MIT · 遗传算法 + 动态规划 · 可替换设备模型**
+
+[快速开始](#快速运行) · [系统架构](#系统架构) · [模型接入](docs/MODEL_GUIDE.md) · [主机调度](docs/CHILLER_SCHEDULING.md)
 
 一个可直接运行的冷站控制优化示例：输入负荷、湿球温度和设备配置，用**遗传算法（GA）**搜索整个计划时段的低电耗控制策略，输出主机启停、负荷分配、泵塔频率和温度设定值。
 
 **公开版本的设备规格、性能曲线和校准参数全部为虚构示例。** 默认主机在 **65% 负载率**附近 COP 最高；泵和塔风机使用相似定律；冷却塔使用虚构的归一化 Merkel-NTU 简化模型。只需 Python 3.10+，无第三方运行依赖、数据库或天气服务。
+
+## 项目能力
+
+| 从什么开始 | 框架负责什么 | 得到什么 |
+| --- | --- | --- |
+| CSV 负荷与湿球曲线，或随机生成样例 | GA 搜索整段温度序列，检查温度/温差/逼近度边界 | 分时段水温设定值与总电耗 |
+| 设备容量、初始启停状态和运行小时 | 动态规划满足至少开机 2h、停机 2h，同能耗下优先较短运行时数 | 主机启停路径与可继承的计划末态 |
+| 自有公式、机器学习或深度学习预测器 | 标准化模型接口、可替换的冷量分配和泵塔组合计算 | 单机负荷、PLR、泵塔频率和功率明细 |
+
+适合学习冷站优化、验证自有设备模型以及开发离线控制策略。输出是搜索到的最佳可行方案；banner 中的“全局优化”表示整站、整段联合寻优，不代表数学上的全局最优保证。
+
+## 系统架构
+
+```mermaid
+flowchart TD
+    loadInput["CSV load + wet bulb / synthetic curve"] --> entry["Input and configuration validation"]
+    plantConfig["Equipment, bounds and initial state"] --> entry
+    entry --> gaSearch["GA: candidate temperature sequence"]
+
+    subgraph evaluation ["Evaluate one candidate over the full horizon"]
+        decode["Decode temperature and step constraints"]
+        allocation["Enumerate chiller groups and allocate load"]
+        chillerPower["Predict each chiller's power"]
+        auxiliary["Solve pump and tower dispatch"]
+        commitment["DP: minimum on/off times and runtime preference"]
+        decode --> allocation --> chillerPower --> auxiliary --> commitment
+    end
+
+    gaSearch --> decode
+    customAllocation["Load allocation factory"] -.-> allocation
+    customModel["Physics / ML / DL predictor"] -.-> chillerPower
+    commitment -->|"Horizon energy as fitness"| gaSearch
+    gaSearch -->|"Best feasible candidate"| verification["Independent constraint and energy checks"]
+    verification --> exports["Schedule CSV, result JSON and terminal state"]
+
+    classDef inputs fill:#e8f3ff,stroke:#2563eb,color:#0f172a
+    classDef search fill:#e0f7fa,stroke:#0891b2,color:#0f172a
+    classDef extensions fill:#f3e8ff,stroke:#9333ea,color:#0f172a
+    classDef outputs fill:#ecfdf5,stroke:#059669,color:#0f172a
+    class loadInput,plantConfig,entry inputs
+    class gaSearch,decode,allocation,chillerPower,auxiliary,commitment search
+    class customAllocation,customModel extensions
+    class verification,exports outputs
+```
+
+**外层 GA 调温度，内层动态规划选启停路径。** 每条候选温度序列先得到各时段、各主机组合的功率，再由动态规划处理跨时段开停约束，整段电耗返回 GA 作为适应度。虚线表示可替换的模型接口；同一模型同时用于计算与最终复核。
+
+| 模块 | 职责 |
+| --- | --- |
+| `main.py` / `config.py` / `load_generate.py` | 命令行入口、输入校验、配置与负荷加载 |
+| `ga_series.py` / `optimize_utils.py` | 全时域搜索、温度解码、设备组合评估与结果复核 |
+| `model_interface.py` / `load_allocation.py` | 可替换的单机功率预测与组合内负荷分配 |
+| `power_models.py` / `pump_lookup.py` | 默认虚构模型、泵组合预计算与泵塔功率计算 |
+| `chiller_scheduling.py` | 带最小开停时间的动态规划、运行小时优先级及状态回放 |
 
 ## 快速运行
 
@@ -198,6 +260,8 @@ approach = R / [exp(NTU) - 1]
 
 ```text
 config/default.json       完整虚构设备与算法配置
+README_EN.md             English documentation
+docs/assets/banner.png   README 顶部项目图片
 config.py                 配置读取与校验
 main.py                   CSV/随机负荷入口与结果导出
 ga_series.py              全时域遗传算法
